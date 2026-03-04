@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>РосТендер → deal.csv (дата исправлена)</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        }
+        body {
+            background: #f5f7fa;
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 16px;
+        }
+        .card {
+            background: white;
+            border-radius: 24px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            max-width: 700px;
+            width: 100%;
+            padding: 32px;
+        }
+        h1 {
+            font-size: 1.8rem;
+            margin: 0 0 8px;
+            color: #1e293b;
+        }
+        .subtitle {
+            color: #64748b;
+            margin-bottom: 24px;
+            font-size: 0.95rem;
+        }
+        .drop-zone {
+            border: 2px dashed #cbd5e1;
+            border-radius: 20px;
+            padding: 40px 20px;
+            text-align: center;
+            background: #f8fafc;
+            transition: all 0.2s;
+            cursor: pointer;
+            margin-bottom: 20px;
+        }
+        .drop-zone.dragover {
+            border-color: #3b82f6;
+            background: #eff6ff;
+        }
+        .drop-zone svg {
+            width: 48px;
+            height: 48px;
+            stroke: #94a3b8;
+            margin-bottom: 12px;
+        }
+        .drop-zone .hint {
+            color: #475569;
+            font-weight: 500;
+        }
+        .drop-zone .small {
+            color: #94a3b8;
+            font-size: 0.85rem;
+            margin-top: 8px;
+        }
+        .file-info {
+            background: #f1f5f9;
+            border-radius: 16px;
+            padding: 16px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .file-name {
+            font-weight: 600;
+            color: #0f172a;
+            word-break: break-word;
+        }
+        .file-remove {
+            color: #ef4444;
+            background: none;
+            border: none;
+            font-size: 1.2rem;
+            cursor: pointer;
+            padding: 0 8px;
+        }
+        .btn {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            border-radius: 40px;
+            padding: 14px 24px;
+            font-size: 1rem;
+            font-weight: 600;
+            width: 100%;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .btn:disabled {
+            background: #cbd5e1;
+            cursor: not-allowed;
+        }
+        .btn:not(:disabled):hover {
+            background: #2563eb;
+        }
+        .alert {
+            padding: 12px 16px;
+            border-radius: 12px;
+            margin-top: 20px;
+            font-size: 0.95rem;
+        }
+        .alert.error {
+            background: #fee2e2;
+            color: #b91c1c;
+        }
+        .alert.success {
+            background: #dcfce7;
+            color: #166534;
+        }
+        .counter {
+            font-weight: 600;
+            margin-left: 8px;
+        }
+    </style>
+    <!-- Подключаем SheetJS -->
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+    <div class="card">
+        <h1>РосТендер → deal.csv</h1>
+        <div class="subtitle">
+            Загрузите выгрузку из РосТендера (Excel), и мы преобразуем её в формат для импорта сделок.
+        </div>
+
+        <div id="dropZone" class="drop-zone">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 16v-6m0 0L9 10m3-4l3 4m-6 0h6" stroke-linecap="round"/>
+                <path d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2" />
+                <rect x="2" y="8" width="20" height="8" rx="2" ry="2" />
+            </svg>
+            <div class="hint">Перетащите файл или нажмите для выбора</div>
+            <div class="small">.xlsx (выгрузка РосТендера)</div>
+            <input type="file" id="fileInput" accept=".xlsx, .xls" style="display: none;">
+        </div>
+
+        <div id="fileInfo" class="file-info" style="display: none;">
+            <span id="fileName" class="file-name"></span>
+            <button id="removeFile" class="file-remove" title="Удалить">✕</button>
+        </div>
+
+        <button id="downloadBtn" class="btn" disabled>Скачать CSV</button>
+
+        <div id="message" class="alert" style="display: none;"></div>
+    </div>
+
+    <script>
+        (function() {
+            const dropZone = document.getElementById('dropZone');
+            const fileInput = document.getElementById('fileInput');
+            const fileInfo = document.getElementById('fileInfo');
+            const fileNameSpan = document.getElementById('fileName');
+            const removeFileBtn = document.getElementById('removeFile');
+            const downloadBtn = document.getElementById('downloadBtn');
+            const messageDiv = document.getElementById('message');
+
+            let currentFile = null;
+            let parsedData = null;
+            let rowCount = 0;
+
+            function showMessage(text, type = 'error') {
+                messageDiv.style.display = 'block';
+                messageDiv.className = `alert ${type}`;
+                messageDiv.textContent = text;
+            }
+
+            function hideMessage() {
+                messageDiv.style.display = 'none';
+            }
+
+            function resetFileState() {
+                currentFile = null;
+                parsedData = null;
+                rowCount = 0;
+                fileInfo.style.display = 'none';
+                downloadBtn.disabled = true;
+                hideMessage();
+            }
+
+            async function handleFile(file) {
+                if (!file) return;
+                if (!file.name.match(/\.(xlsx|xls)$/i)) {
+                    showMessage('Пожалуйста, выберите файл Excel (.xlsx или .xls)', 'error');
+                    return;
+                }
+
+                currentFile = file;
+                fileNameSpan.textContent = file.name;
+                fileInfo.style.display = 'flex';
+                downloadBtn.disabled = true;
+                hideMessage();
+
+                try {
+                    const data = await readExcel(file);
+                    parsedData = data.csv;
+                    rowCount = data.count;
+                    downloadBtn.disabled = false;
+                    showMessage(`Файл обработан. Найдено тендеров: ${rowCount}`, 'success');
+                } catch (err) {
+                    console.error(err);
+                    showMessage('Ошибка при обработке файла: ' + err.message, 'error');
+                    parsedData = null;
+                    rowCount = 0;
+                }
+            }
+
+            // Форматирование даты в ДД.ММ.ГГГГ ЧЧ:ММ:СС
+            function formatDate(date) {
+                if (!(date instanceof Date) || isNaN(date)) return '';
+                const pad = (n) => n.toString().padStart(2, '0');
+                const day = pad(date.getDate());
+                const month = pad(date.getMonth() + 1);
+                const year = date.getFullYear();
+                const hours = pad(date.getHours());
+                const minutes = pad(date.getMinutes());
+                const seconds = pad(date.getSeconds());
+                return `${day}.${month}.${year} ${hours}:${minutes}:${seconds}`;
+            }
+
+            async function readExcel(file) {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        try {
+                            const data = new Uint8Array(e.target.result);
+                            // Включаем преобразование дат в объекты Date
+                            const workbook = XLSX.read(data, { type: 'array', cellDates: true });
+                            const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+
+                            // Получаем сырые строки для текстовых полей (без преобразования дат)
+                            // Но нам нужны и ячейки для ссылок. Для удобства используем sheet_to_json с опцией header:1, 
+                            // а даты достанем отдельно через cellDates.
+                            const rows = XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: '' });
+
+                            if (rows.length < 3) {
+                                throw new Error('Файл слишком короткий. Ожидается минимум 3 строки.');
+                            }
+
+                            const headers = rows[2] || [];
+                            const columnMap = {
+                                tenderSubject: findColumnIndex(headers, 'Предмет тендера'),
+                                customer: findColumnIndex(headers, 'Заказчик'),
+                                contactPerson: findColumnIndex(headers, 'Контактное лицо организатора'),
+                                startPrice: findColumnIndex(headers, 'Начальная цена, руб'),
+                                sourceLink: findColumnIndex(headers, 'Ссылка на источник'),
+                                endDate: findColumnIndex(headers, 'Дата окончания (МСК)')
+                            };
+
+                            const missing = [];
+                            if (columnMap.tenderSubject === -1) missing.push('Предмет тендера');
+                            if (columnMap.customer === -1) missing.push('Заказчик');
+                            if (columnMap.startPrice === -1) missing.push('Начальная цена, руб');
+                            if (columnMap.sourceLink === -1) missing.push('Ссылка на источник');
+                            if (columnMap.endDate === -1) missing.push('Дата окончания (МСК)');
+
+                            if (missing.length > 0) {
+                                throw new Error(`Не найдены столбцы: ${missing.join(', ')}`);
+                            }
+
+                            const dataRows = [];
+                            for (let i = 3; i < rows.length; i++) {
+                                const row = rows[i];
+                                if (!row || row.every(cell => cell === undefined || cell === null || cell === '')) {
+                                    continue;
+                                }
+
+                                // Текстовые поля через rows
+                                const tenderSubject = getCellValue(row, columnMap.tenderSubject);
+                                const customer = getCellValue(row, columnMap.customer);
+                                const contact = getCellValue(row, columnMap.contactPerson);
+                                let price = getCellValue(row, columnMap.startPrice);
+                                let source = getCellValue(row, columnMap.sourceLink);
+                                // Дата: попробуем получить через объект ячейки, чтобы использовать форматирование
+                                let endDate = '';
+
+                                // Получаем ячейку даты для проверки типа
+                                const dateCellAddress = XLSX.utils.encode_cell({ c: columnMap.endDate, r: i });
+                                const dateCell = firstSheet[dateCellAddress];
+                                if (dateCell) {
+                                    if (dateCell.t === 'd' && dateCell.v instanceof Date) {
+                                        endDate = formatDate(dateCell.v);
+                                    } else {
+                                        // Если не дата, берём как есть из row (может быть строка)
+                                        endDate = getCellValue(row, columnMap.endDate);
+                                    }
+                                } else {
+                                    endDate = getCellValue(row, columnMap.endDate);
+                                }
+
+                                // Ссылка: извлекаем гиперссылку
+                                const linkCellAddress = XLSX.utils.encode_cell({ c: columnMap.sourceLink, r: i });
+                                const linkCell = firstSheet[linkCellAddress];
+                                if (linkCell && linkCell.l && linkCell.l.Target) {
+                                    source = linkCell.l.Target;
+                                }
+
+                                // Форматирование цены
+                                let formattedPrice = '';
+                                if (price && price.toString().trim() !== '') {
+                                    let priceStr = price.toString().trim();
+                                    priceStr = priceStr.replace(/\s/g, '').replace(',', '.');
+                                    const num = parseFloat(priceStr);
+                                    if (!isNaN(num)) {
+                                        formattedPrice = num.toFixed(2);
+                                    }
+                                }
+
+                                const csvRow = [
+                                    '',                          // ID
+                                    tenderSubject,               // Название сделки
+                                    '',                          // Вероятность
+                                    customer,                    // Компания
+                                    contact,                     // Контакт
+                                    formattedPrice,              // Сумма
+                                    'RUB',                       // Валюта
+                                    '',                          // Источник
+                                    '',                          // Воронка
+                                    'Обсчёт',                    // Стадия сделки
+                                    '',                          // Тип
+                                    '',                          // Ответственный
+                                    source,                      // ссылка
+                                    endDate                      // Срок подачи (отформатирован)
+                                ];
+
+                                dataRows.push(csvRow);
+                            }
+
+                            if (dataRows.length === 0) {
+                                throw new Error('Не найдено ни одной строки с данными.');
+                            }
+
+                            const headerRow = ['ID', 'Название сделки', 'Вероятность', 'Компания', 'Контакт', 'Сумма', 'Валюта', 'Источник', 'Воронка', 'Стадия сделки', 'Тип', 'Ответственный', 'ссылка', 'Срок подачи'];
+                            const csvContent = generateCSV([headerRow, ...dataRows]);
+
+                            resolve({
+                                csv: csvContent,
+                                count: dataRows.length
+                            });
+                        } catch (err) {
+                            reject(err);
+                        }
+                    };
+                    reader.onerror = (err) => reject(err);
+                    reader.readAsArrayBuffer(file);
+                });
+            }
+
+            function findColumnIndex(headers, colName) {
+                return headers.findIndex(h => h && h.toString().trim() === colName);
+            }
+
+            function getCellValue(row, index) {
+                if (index === -1 || index >= row.length) return '';
+                const val = row[index];
+                if (val === undefined || val === null) return '';
+                // Если это Date, форматируем (на случай если попала дата, но мы уже отдельно обрабатываем)
+                if (val instanceof Date && !isNaN(val)) {
+                    return formatDate(val);
+                }
+                return val.toString().trim();
+            }
+
+            function escapeCSVField(field) {
+                if (field === null || field === undefined) return '';
+                const str = String(field);
+                if (str.includes(';') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
+                    return '"' + str.replace(/"/g, '""') + '"';
+                }
+                return str;
+            }
+
+            function generateCSV(rows) {
+                const lines = rows.map(row => row.map(cell => escapeCSVField(cell)).join(';'));
+                return '\uFEFF' + lines.join('\n');
+            }
+
+            function downloadCSV(content, filename = 'deal.csv') {
+                const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(blob);
+                link.download = filename;
+                link.click();
+                URL.revokeObjectURL(link.href);
+            }
+
+            // События
+            dropZone.addEventListener('click', () => fileInput.click());
+
+            dropZone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dropZone.classList.add('dragover');
+            });
+
+            dropZone.addEventListener('dragleave', () => {
+                dropZone.classList.remove('dragover');
+            });
+
+            dropZone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dropZone.classList.remove('dragover');
+                const file = e.dataTransfer.files[0];
+                if (file) handleFile(file);
+            });
+
+            fileInput.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (file) handleFile(file);
+            });
+
+            removeFileBtn.addEventListener('click', () => {
+                resetFileState();
+                fileInput.value = '';
+            });
+
+            downloadBtn.addEventListener('click', () => {
+                if (parsedData) {
+                    downloadCSV(parsedData);
+                } else {
+                    showMessage('Нет данных для скачивания', 'error');
+                }
+            });
+
+            resetFileState();
+        })();
+    </script>
+</body>
+</html>
