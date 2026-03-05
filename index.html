@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>РосТендер → deal.csv (дата исправлена)</title>
+    <title>РосТендер → deal.csv (с индикацией прогресса)</title>
     <style>
         * {
             box-sizing: border-box;
@@ -22,7 +22,7 @@
             background: white;
             border-radius: 24px;
             box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-            max-width: 700px;
+            max-width: 800px;
             width: 100%;
             padding: 32px;
         }
@@ -65,19 +65,72 @@
             font-size: 0.85rem;
             margin-top: 8px;
         }
-        .file-info {
-            background: #f1f5f9;
+        .file-list {
+            margin: 24px 0;
+            border: 1px solid #e2e8f0;
             border-radius: 16px;
-            padding: 16px;
-            margin-bottom: 20px;
+            overflow: hidden;
+        }
+        .file-item {
             display: flex;
-            justify-content: space-between;
             align-items: center;
+            justify-content: space-between;
+            padding: 12px 16px;
+            background: #ffffff;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        .file-item:last-child {
+            border-bottom: none;
+        }
+        .file-info {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            flex: 1;
         }
         .file-name {
             font-weight: 600;
             color: #0f172a;
             word-break: break-word;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .file-status {
+            font-size: 0.9rem;
+            color: #334155;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .file-status.error {
+            color: #b91c1c;
+        }
+        .file-status.success {
+            color: #166534;
+        }
+        .spinner {
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #3b82f6;
+            border-radius: 50%;
+            width: 18px;
+            height: 18px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .icon-check {
+            color: #22c55e;
+            font-weight: bold;
+            font-size: 1.2rem;
+        }
+        .icon-error {
+            color: #ef4444;
+            font-weight: bold;
+            font-size: 1.2rem;
         }
         .file-remove {
             color: #ef4444;
@@ -85,7 +138,25 @@
             border: none;
             font-size: 1.2rem;
             cursor: pointer;
-            padding: 0 8px;
+            padding: 4px 8px;
+            border-radius: 20px;
+            margin-left: 8px;
+        }
+        .file-remove:hover {
+            background: #fee2e2;
+        }
+        .progress-info {
+            text-align: right;
+            font-size: 1rem;
+            margin-bottom: 16px;
+            color: #334155;
+        }
+        .total-info {
+            text-align: right;
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 16px;
+            color: #0f172a;
         }
         .btn {
             background: #3b82f6;
@@ -120,19 +191,14 @@
             background: #dcfce7;
             color: #166534;
         }
-        .counter {
-            font-weight: 600;
-            margin-left: 8px;
-        }
     </style>
-    <!-- Подключаем SheetJS -->
     <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
 </head>
 <body>
     <div class="card">
         <h1>РосТендер → deal.csv</h1>
         <div class="subtitle">
-            Загрузите выгрузку из РосТендера (Excel), и мы преобразуем её в формат для импорта сделок.
+            Загрузите один или несколько файлов. Дубликаты по номеру тендера удаляются.
         </div>
 
         <div id="dropZone" class="drop-zone">
@@ -141,14 +207,20 @@
                 <path d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2" />
                 <rect x="2" y="8" width="20" height="8" rx="2" ry="2" />
             </svg>
-            <div class="hint">Перетащите файл или нажмите для выбора</div>
-            <div class="small">.xlsx (выгрузка РосТендера)</div>
-            <input type="file" id="fileInput" accept=".xlsx, .xls" style="display: none;">
+            <div class="hint">Перетащите файлы или нажмите для выбора</div>
+            <div class="small">.xlsx (можно несколько)</div>
+            <input type="file" id="fileInput" accept=".xlsx, .xls" multiple style="display: none;">
         </div>
 
-        <div id="fileInfo" class="file-info" style="display: none;">
-            <span id="fileName" class="file-name"></span>
-            <button id="removeFile" class="file-remove" title="Удалить">✕</button>
+        <!-- Список загруженных файлов -->
+        <div id="fileList" class="file-list"></div>
+
+        <!-- Прогресс обработки -->
+        <div id="progressInfo" class="progress-info" style="display: none;"></div>
+
+        <!-- Общая информация по тендерам -->
+        <div id="totalInfo" class="total-info" style="display: none;">
+            Всего строк: <span id="totalRows">0</span> | Уникальных: <span id="uniqueRows">0</span>
         </div>
 
         <button id="downloadBtn" class="btn" disabled>Скачать CSV</button>
@@ -160,88 +232,219 @@
         (function() {
             const dropZone = document.getElementById('dropZone');
             const fileInput = document.getElementById('fileInput');
-            const fileInfo = document.getElementById('fileInfo');
-            const fileNameSpan = document.getElementById('fileName');
-            const removeFileBtn = document.getElementById('removeFile');
+            const fileListDiv = document.getElementById('fileList');
+            const progressInfoDiv = document.getElementById('progressInfo');
+            const totalInfoDiv = document.getElementById('totalInfo');
+            const totalRowsSpan = document.getElementById('totalRows');
+            const uniqueRowsSpan = document.getElementById('uniqueRows');
             const downloadBtn = document.getElementById('downloadBtn');
             const messageDiv = document.getElementById('message');
 
-            let currentFile = null;
-            let parsedData = null;
-            let rowCount = 0;
+            // Хранилище файлов: каждый элемент = { id, fileName, status, items?, error? }
+            let filesData = [];
 
             function showMessage(text, type = 'error') {
                 messageDiv.style.display = 'block';
                 messageDiv.className = `alert ${type}`;
                 messageDiv.textContent = text;
+                setTimeout(() => {
+                    messageDiv.style.display = 'none';
+                }, 5000);
             }
 
-            function hideMessage() {
-                messageDiv.style.display = 'none';
+            // Подсчёт статистики по тендерам (только успешные файлы)
+            function calculateTenderStats() {
+                let total = 0;
+                let unique = 0;
+                const seen = new Set();
+
+                filesData.forEach(file => {
+                    if (file.status === 'done' && file.items) {
+                        file.items.forEach(item => {
+                            total++;
+                            const num = item.tenderNumber ? item.tenderNumber.trim() : '';
+                            if (num !== '') {
+                                if (!seen.has(num)) {
+                                    seen.add(num);
+                                    unique++;
+                                }
+                            } else {
+                                unique++;
+                            }
+                        });
+                    }
+                });
+
+                return { total, unique };
             }
 
-            function resetFileState() {
-                currentFile = null;
-                parsedData = null;
-                rowCount = 0;
-                fileInfo.style.display = 'none';
-                downloadBtn.disabled = true;
-                hideMessage();
+            // Подсчёт прогресса файлов
+            function countFileProgress() {
+                let total = filesData.length;
+                let processed = filesData.filter(f => f.status === 'done' || f.status === 'error').length;
+                return { total, processed };
             }
 
-            async function handleFile(file) {
-                if (!file) return;
-                if (!file.name.match(/\.(xlsx|xls)$/i)) {
-                    showMessage('Пожалуйста, выберите файл Excel (.xlsx или .xls)', 'error');
+            // Обновление всего UI
+            function renderAll() {
+                // Список файлов
+                if (filesData.length === 0) {
+                    fileListDiv.innerHTML = '';
+                    progressInfoDiv.style.display = 'none';
+                    totalInfoDiv.style.display = 'none';
+                    downloadBtn.disabled = true;
                     return;
                 }
 
-                currentFile = file;
-                fileNameSpan.textContent = file.name;
-                fileInfo.style.display = 'flex';
-                downloadBtn.disabled = true;
-                hideMessage();
+                let html = '';
+                filesData.forEach(file => {
+                    let statusIcon = '';
+                    let statusText = '';
+                    let statusClass = '';
 
-                try {
-                    const data = await readExcel(file);
-                    parsedData = data.csv;
-                    rowCount = data.count;
-                    downloadBtn.disabled = false;
-                    showMessage(`Файл обработан. Найдено тендеров: ${rowCount}`, 'success');
-                } catch (err) {
-                    console.error(err);
-                    showMessage('Ошибка при обработке файла: ' + err.message, 'error');
-                    parsedData = null;
-                    rowCount = 0;
+                    switch (file.status) {
+                        case 'pending':
+                            statusIcon = '<span class="spinner"></span>';
+                            statusText = 'Обрабатывается...';
+                            break;
+                        case 'processing':
+                            statusIcon = '<span class="spinner"></span>';
+                            statusText = 'Обработка...';
+                            break;
+                        case 'done':
+                            statusIcon = '<span class="icon-check">✅</span>';
+                            statusText = `Готово (тендеров: ${file.items.length})`;
+                            statusClass = 'success';
+                            break;
+                        case 'error':
+                            statusIcon = '<span class="icon-error">❌</span>';
+                            statusText = 'Ошибка: ' + escapeHtml(file.error);
+                            statusClass = 'error';
+                            break;
+                        default:
+                            statusText = 'Неизвестный статус';
+                    }
+
+                    html += `
+                        <div class="file-item" data-file-id="${escapeHtml(file.id)}">
+                            <div class="file-info">
+                                <div class="file-name">
+                                    ${statusIcon}
+                                    ${escapeHtml(file.fileName)}
+                                </div>
+                                <div class="file-status ${statusClass}">${statusText}</div>
+                            </div>
+                            <button class="file-remove" data-file-id="${escapeHtml(file.id)}" title="Удалить">✕</button>
+                        </div>
+                    `;
+                });
+
+                fileListDiv.innerHTML = html;
+
+                // Прогресс файлов
+                const prog = countFileProgress();
+                if (prog.total > 0) {
+                    progressInfoDiv.style.display = 'block';
+                    progressInfoDiv.textContent = `Обработано ${prog.processed} из ${prog.total} файлов`;
+                } else {
+                    progressInfoDiv.style.display = 'none';
                 }
+
+                // Статистика тендеров
+                const stats = calculateTenderStats();
+                totalRowsSpan.textContent = stats.total;
+                uniqueRowsSpan.textContent = stats.unique;
+                totalInfoDiv.style.display = 'block';
+                downloadBtn.disabled = (stats.unique === 0);
+
+                // Обработчики удаления
+                document.querySelectorAll('.file-remove').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        const fileId = e.target.getAttribute('data-file-id');
+                        if (fileId) removeFile(fileId);
+                        e.stopPropagation();
+                    });
+                });
             }
 
-            // Форматирование даты в ДД.ММ.ГГГГ ЧЧ:ММ:СС
-            function formatDate(date) {
-                if (!(date instanceof Date) || isNaN(date)) return '';
-                const pad = (n) => n.toString().padStart(2, '0');
-                const day = pad(date.getDate());
-                const month = pad(date.getMonth() + 1);
-                const year = date.getFullYear();
-                const hours = pad(date.getHours());
-                const minutes = pad(date.getMinutes());
-                const seconds = pad(date.getSeconds());
-                return `${day}.${month}.${year} ${hours}:${minutes}:${seconds}`;
+            function escapeHtml(unsafe) {
+                return unsafe.replace(/[&<>"]/g, function(m) {
+                    if(m === '&') return '&amp;';
+                    if(m === '<') return '&lt;';
+                    if(m === '>') return '&gt;';
+                    if(m === '"') return '&quot;';
+                    return m;
+                });
             }
 
+            function removeFile(fileId) {
+                filesData = filesData.filter(f => f.id !== fileId);
+                renderAll();
+            }
+
+            // Генерация уникального ID
+            function generateFileId() {
+                return 'f_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+            }
+
+            // Добавление файла с начальным статусом pending
+            function addFileForProcessing(file) {
+                const fileId = generateFileId();
+                const fileEntry = {
+                    id: fileId,
+                    fileName: file.name,
+                    status: 'pending'
+                };
+                filesData.push(fileEntry);
+                renderAll();
+
+                // Меняем статус на processing и запускаем обработку
+                setTimeout(() => {
+                    const idx = filesData.findIndex(f => f.id === fileId);
+                    if (idx !== -1 && filesData[idx].status === 'pending') {
+                        filesData[idx].status = 'processing';
+                        renderAll();
+                        processFile(file, fileId);
+                    }
+                }, 50); // небольшая задержка, чтобы увидеть смену статуса
+            }
+
+            // Асинхронная обработка файла
+            async function processFile(file, fileId) {
+                try {
+                    const result = await readExcel(file);
+                    const idx = filesData.findIndex(f => f.id === fileId);
+                    if (idx !== -1) {
+                        filesData[idx] = {
+                            ...filesData[idx],
+                            status: 'done',
+                            items: result.items,
+                            count: result.items.length
+                        };
+                    }
+                } catch (err) {
+                    const idx = filesData.findIndex(f => f.id === fileId);
+                    if (idx !== -1) {
+                        filesData[idx] = {
+                            ...filesData[idx],
+                            status: 'error',
+                            error: err.message
+                        };
+                    }
+                }
+                renderAll();
+            }
+
+            // Чтение Excel (без изменений, кроме возвращаемого формата)
             async function readExcel(file) {
                 return new Promise((resolve, reject) => {
                     const reader = new FileReader();
                     reader.onload = (e) => {
                         try {
                             const data = new Uint8Array(e.target.result);
-                            // Включаем преобразование дат в объекты Date
                             const workbook = XLSX.read(data, { type: 'array', cellDates: true });
                             const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
 
-                            // Получаем сырые строки для текстовых полей (без преобразования дат)
-                            // Но нам нужны и ячейки для ссылок. Для удобства используем sheet_to_json с опцией header:1, 
-                            // а даты достанем отдельно через cellDates.
                             const rows = XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: '' });
 
                             if (rows.length < 3) {
@@ -255,7 +458,8 @@
                                 contactPerson: findColumnIndex(headers, 'Контактное лицо организатора'),
                                 startPrice: findColumnIndex(headers, 'Начальная цена, руб'),
                                 sourceLink: findColumnIndex(headers, 'Ссылка на источник'),
-                                endDate: findColumnIndex(headers, 'Дата окончания (МСК)')
+                                endDate: findColumnIndex(headers, 'Дата окончания (МСК)'),
+                                tenderNumber: findColumnIndex(headers, 'Номер тендера')
                             };
 
                             const missing = [];
@@ -265,45 +469,48 @@
                             if (columnMap.sourceLink === -1) missing.push('Ссылка на источник');
                             if (columnMap.endDate === -1) missing.push('Дата окончания (МСК)');
 
-                            if (missing.length > 0) {
+                            if (missing.length > 0 && !(missing.length === 1 && missing[0] === 'Номер тендера')) {
                                 throw new Error(`Не найдены столбцы: ${missing.join(', ')}`);
                             }
 
-                            const dataRows = [];
+                            const items = [];
                             for (let i = 3; i < rows.length; i++) {
                                 const row = rows[i];
                                 if (!row || row.every(cell => cell === undefined || cell === null || cell === '')) {
                                     continue;
                                 }
 
-                                // Текстовые поля через rows
                                 const tenderSubject = getCellValue(row, columnMap.tenderSubject);
                                 const customer = getCellValue(row, columnMap.customer);
                                 const contact = getCellValue(row, columnMap.contactPerson);
                                 let price = getCellValue(row, columnMap.startPrice);
                                 let source = getCellValue(row, columnMap.sourceLink);
-                                // Дата: попробуем получить через объект ячейки, чтобы использовать форматирование
                                 let endDate = '';
 
-                                // Получаем ячейку даты для проверки типа
+                                // Дата
                                 const dateCellAddress = XLSX.utils.encode_cell({ c: columnMap.endDate, r: i });
                                 const dateCell = firstSheet[dateCellAddress];
                                 if (dateCell) {
                                     if (dateCell.t === 'd' && dateCell.v instanceof Date) {
                                         endDate = formatDate(dateCell.v);
                                     } else {
-                                        // Если не дата, берём как есть из row (может быть строка)
                                         endDate = getCellValue(row, columnMap.endDate);
                                     }
                                 } else {
                                     endDate = getCellValue(row, columnMap.endDate);
                                 }
 
-                                // Ссылка: извлекаем гиперссылку
+                                // Гиперссылка
                                 const linkCellAddress = XLSX.utils.encode_cell({ c: columnMap.sourceLink, r: i });
                                 const linkCell = firstSheet[linkCellAddress];
                                 if (linkCell && linkCell.l && linkCell.l.Target) {
                                     source = linkCell.l.Target;
+                                }
+
+                                // Номер тендера
+                                let tenderNumber = '';
+                                if (columnMap.tenderNumber !== -1) {
+                                    tenderNumber = getCellValue(row, columnMap.tenderNumber);
                                 }
 
                                 // Форматирование цены
@@ -331,28 +538,22 @@
                                     '',                          // Тип
                                     '',                          // Ответственный
                                     source,                      // ссылка
-                                    endDate                      // Срок подачи (отформатирован)
+                                    endDate                      // Срок подачи
                                 ];
 
-                                dataRows.push(csvRow);
+                                items.push({ csvRow, tenderNumber });
                             }
 
-                            if (dataRows.length === 0) {
-                                throw new Error('Не найдено ни одной строки с данными.');
+                            if (items.length === 0) {
+                                throw new Error('Нет данных после обработки (пустые строки?)');
                             }
 
-                            const headerRow = ['ID', 'Название сделки', 'Вероятность', 'Компания', 'Контакт', 'Сумма', 'Валюта', 'Источник', 'Воронка', 'Стадия сделки', 'Тип', 'Ответственный', 'ссылка', 'Срок подачи'];
-                            const csvContent = generateCSV([headerRow, ...dataRows]);
-
-                            resolve({
-                                csv: csvContent,
-                                count: dataRows.length
-                            });
+                            resolve({ items, count: items.length });
                         } catch (err) {
                             reject(err);
                         }
                     };
-                    reader.onerror = (err) => reject(err);
+                    reader.onerror = () => reject(new Error('Ошибка чтения файла'));
                     reader.readAsArrayBuffer(file);
                 });
             }
@@ -365,25 +566,49 @@
                 if (index === -1 || index >= row.length) return '';
                 const val = row[index];
                 if (val === undefined || val === null) return '';
-                // Если это Date, форматируем (на случай если попала дата, но мы уже отдельно обрабатываем)
                 if (val instanceof Date && !isNaN(val)) {
                     return formatDate(val);
                 }
                 return val.toString().trim();
             }
 
-            function escapeCSVField(field) {
+            function formatDate(date) {
+                const pad = (n) => n.toString().padStart(2, '0');
+                return `${pad(date.getDate())}.${pad(date.getMonth()+1)}.${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+            }
+
+            // Генерация итогового CSV с дедупликацией
+            function generateDeduplicatedCSV() {
+                const headerRow = ['ID', 'Название сделки', 'Вероятность', 'Компания', 'Контакт', 'Сумма', 'Валюта', 'Источник', 'Воронка', 'Стадия сделки', 'Тип', 'Ответственный', 'ссылка', 'Срок подачи'];
+                const allRows = [headerRow];
+                const seen = new Set();
+
+                filesData.forEach(file => {
+                    if (file.status === 'done' && file.items) {
+                        file.items.forEach(item => {
+                            const num = item.tenderNumber ? item.tenderNumber.trim() : '';
+                            if (num !== '') {
+                                if (!seen.has(num)) {
+                                    seen.add(num);
+                                    allRows.push(item.csvRow);
+                                }
+                            } else {
+                                allRows.push(item.csvRow);
+                            }
+                        });
+                    }
+                });
+
+                return '\uFEFF' + allRows.map(row => row.map(cell => escapeCSV(cell)).join(';')).join('\n');
+            }
+
+            function escapeCSV(field) {
                 if (field === null || field === undefined) return '';
                 const str = String(field);
                 if (str.includes(';') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
                     return '"' + str.replace(/"/g, '""') + '"';
                 }
                 return str;
-            }
-
-            function generateCSV(rows) {
-                const lines = rows.map(row => row.map(cell => escapeCSVField(cell)).join(';'));
-                return '\uFEFF' + lines.join('\n');
             }
 
             function downloadCSV(content, filename = 'deal.csv') {
@@ -395,7 +620,7 @@
                 URL.revokeObjectURL(link.href);
             }
 
-            // События
+            // --- События ---
             dropZone.addEventListener('click', () => fileInput.click());
 
             dropZone.addEventListener('dragover', (e) => {
@@ -410,29 +635,24 @@
             dropZone.addEventListener('drop', (e) => {
                 e.preventDefault();
                 dropZone.classList.remove('dragover');
-                const file = e.dataTransfer.files[0];
-                if (file) handleFile(file);
+                const files = Array.from(e.dataTransfer.files);
+                files.forEach(file => addFileForProcessing(file));
             });
 
             fileInput.addEventListener('change', (e) => {
-                const file = e.target.files[0];
-                if (file) handleFile(file);
-            });
-
-            removeFileBtn.addEventListener('click', () => {
-                resetFileState();
-                fileInput.value = '';
+                const files = Array.from(e.target.files);
+                files.forEach(file => addFileForProcessing(file));
+                fileInput.value = ''; // разрешить повторный выбор тех же файлов
             });
 
             downloadBtn.addEventListener('click', () => {
-                if (parsedData) {
-                    downloadCSV(parsedData);
-                } else {
-                    showMessage('Нет данных для скачивания', 'error');
-                }
+                const csv = generateDeduplicatedCSV();
+                downloadCSV(csv);
+                const stats = calculateTenderStats();
+                showMessage(`CSV сгенерирован, уникальных тендеров: ${stats.unique}`, 'success');
             });
 
-            resetFileState();
+            renderAll();
         })();
     </script>
 </body>
