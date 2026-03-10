@@ -533,7 +533,8 @@
                                     'Стадия сделки':   'Распределение',
                                     'НМЦК':            formattedPrice,
                                     'Ссылка на закупку': source,
-                                    'окончание срока подачи заявок': endDate
+                                    'окончание срока подачи заявок': endDate,
+                                    'Ответственный':   assignResponsible(tenderSubject)
                                 };
 
                                 items.push({ csvRow, tenderNumber });
@@ -570,6 +571,28 @@
             function formatDate(date) {
                 const pad = (n) => n.toString().padStart(2, '0');
                 return `${pad(date.getDate())}.${pad(date.getMonth()+1)}.${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+            }
+
+            // Правила назначения ответственных по ключевым словам в названии тендера
+            const RESPONSIBLE_RULES = [
+                { person: 'Сычевский В.',    tags: ['смазочн','смазк','масл','гсм','горюче-смазочн','антифриз','coilcoating','coil','рулонного металла с покрытием'] },
+                { person: 'Кондратенко А.',  tags: ['сож','смазочно-охлаждающ'] },
+                { person: 'Мирошников А.',   tags: ['лкм','лакокрасочн','порошков','резервуар'] },
+                { person: 'Лушин И.',        tags: ['разметк','судов','судоремонт'] },
+                { person: 'Жорник Г.',       tags: ['водоподготовк','реагент','коагулянт','флокулянт','оксихлорид','полиоксихлорид'] },
+            ];
+
+            function assignResponsible(title) {
+                if (!title) return '';
+                const lower = title.toLowerCase();
+                for (const rule of RESPONSIBLE_RULES) {
+                    for (const tag of rule.tags) {
+                        if (lower.includes(tag.toLowerCase())) {
+                            return rule.person;
+                        }
+                    }
+                }
+                return '';
             }
 
             // Полный заголовок нового шаблона CRM
