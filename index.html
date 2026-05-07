@@ -708,7 +708,7 @@
                     }
                 });
 
-                return '\uFEFF' + allRows.map(row => row.map(cell => escapeCSV(cell)).join(';')).join('\n');
+                return '\uFEFF' + allRows.map(row => row.map(cell => escapeCSV(cell)).join(';')).join('\r\n');
             }
 
             // Преобразует объект {поле: значение} в позиционный массив по CSV_HEADER
