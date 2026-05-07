@@ -538,7 +538,7 @@
                                     'Ссылка на закупку': source,
                                     'окончание срока подачи заявок': endDate,
                                     'Ответственный':   deal.person,
-                                    'Наблюдатели':     deal.observers.join('\n')
+                                    'Наблюдатели':     deal.observers.join(',')
                                 };
 
                                 items.push({ csvRow, tenderNumber });
