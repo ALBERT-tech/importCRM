@@ -201,6 +201,18 @@
             Загрузите один или несколько файлов. Дубликаты по номеру тендера удаляются.
         </div>
 
+        <!-- Блок загрузки правил назначения (rules.json) -->
+        <div id="rulesBlock" style="margin-bottom: 20px; padding: 14px 16px; border-radius: 12px; background: #fef3c7; color: #92400e;">
+            <div id="rulesStatus" style="font-weight: 600; margin-bottom: 6px;">Правила назначения не загружены</div>
+            <div style="font-size: 0.9rem; margin-bottom: 10px;">
+                Загрузите файл <code>rules.json</code> с правилами назначения ответственных и наблюдателей.
+                Файл хранится только в вашем браузере и НЕ отправляется в интернет.
+            </div>
+            <button id="loadRulesBtn" class="btn" style="width: auto; padding: 8px 16px; font-size: 0.9rem;">Загрузить rules.json</button>
+            <button id="clearRulesBtn" class="btn" style="width: auto; padding: 8px 16px; font-size: 0.9rem; background: #94a3b8; display: none;">Очистить</button>
+            <input type="file" id="rulesInput" accept=".json" style="display: none;">
+        </div>
+
         <div id="dropZone" class="drop-zone">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M12 16v-6m0 0L9 10m3-4l3 4m-6 0h6" stroke-linecap="round"/>
@@ -578,28 +590,24 @@
             }
 
             // ===== Назначение ответственных и наблюдателей (v3) =====
-
-            // ИНН заказчиков [REDACTED]а — любой тендер от этих заказчиков → [REDACTED]
-            const LUSHIN_INNS = new Set([
-                '[INN]','[INN]','[INN]','[INN]','[INN]',
-                '[INN]','[INN]','[INN]','[INN]','[INN]',
-                '[INN]','[INN]','[INN]','[INN]','[INN]',
-                '[INN]','[INN]'
-            ]);
-
-            // Ключевые слова судоремонтной сферы в названии заказчика
-            const SHIPBUILDING_CUSTOMER_TAGS = ['судоремонт','верфь','судостро'];
+            // Правила (RULES_CONFIG) загружаются из rules.json через UI.
+            // Структура: { lushinPerson, lushinInns: [], shipbuildingCustomerTags: [], rules: [...] }
+            let RULES_CONFIG = null;
 
             function isLushinCustomer(customerINN, customer) {
-                if (customerINN) {
-                    const inns = customerINN.replace(/\s/g, '').split(',');
-                    for (const inn of inns) {
-                        if (LUSHIN_INNS.has(inn)) return true;
+                if (!RULES_CONFIG) return false;
+                const inns = RULES_CONFIG.lushinInns || [];
+                const tags = RULES_CONFIG.shipbuildingCustomerTags || [];
+                if (customerINN && inns.length) {
+                    const innSet = new Set(inns);
+                    const parts = customerINN.replace(/\s/g, '').split(',');
+                    for (const inn of parts) {
+                        if (innSet.has(inn)) return true;
                     }
                 }
-                if (customer) {
+                if (customer && tags.length) {
                     const lc = customer.toLowerCase();
-                    for (const tag of SHIPBUILDING_CUSTOMER_TAGS) {
+                    for (const tag of tags) {
                         if (lc.includes(tag)) return true;
                     }
                 }
@@ -611,61 +619,23 @@
             // context   — (необязательно) хотя бы один контекстный тег тоже должен быть
             // exclude   — (необязательно) если хотя бы один найден — правило пропускается
             // observers — (необязательно) список наблюдателей
-            const RESPONSIBLE_RULES = [
-                // --- Специфические исключения (проверяются первыми) ---
-                { person: '[REDACTED]', match: ['трансформаторн'],         context: ['масл','масел'] },
-                // Экспандерное масло → [REDACTED], наблюдатель [REDACTED]
-                { person: '[REDACTED]',   match: ['экспандерн'],             context: ['масл','масел'],
-                  observers: ['[REDACTED]'] },
-                // Декоративные/полиэфирные порошковые → [REDACTED] (было [REDACTED])
-                { person: '[REDACTED]',   match: ['декоративн','полиэфирн'], context: ['порошков','краск'],
-                  observers: ['[REDACTED]'] },
-                { person: '[REDACTED]',         match: ['вагон'],                  context: ['лкм','лакокрасочн','краск','покрыт'] },
-                // АКЗ / антикоррозийные → [REDACTED] (было [REDACTED]), наблюдатель [REDACTED]
-                { person: '[REDACTED]',   match: ['антикоррози'],
-                  observers: ['[REDACTED]'] },
-                // Аэродромные краски → [REDACTED], наблюдатель [REDACTED]
-                { person: '[REDACTED]',         match: ['аэродромн'],
-                  observers: ['[REDACTED]'] },
-                { person: '[REDACTED]',         match: ['судов','судоремонт','судостро'] },
-                { person: '[REDACTED]', match: ['дорожн'],                 context: ['краск','лкм','лакокрасочн','эмаль','разметк'] },
-                { person: '[REDACTED]', match: ['разметк','разметочн'] },
-
-                // --- Добавки для бетона ---
-                { person: '[REDACTED]',    match: ['пластификатор','гидрофобизатор','суперпластификатор','центрамент','rheostab','rheoplus','rheomatrix','sika','муравит','хардин','мастер бетон'] },
-                { person: '[REDACTED]',    match: ['добавк','присадк','ускорител','замедлител'], context: ['бетон','цемент','раствор'] },
-
-                // --- Масла ГОСТ (марки) → [REDACTED], наблюдатель [REDACTED] ---
-                { person: '[REDACTED]',     match: ['м16г2цс','м14г2цс','м10г2цс','м20г2сд'],
-                  observers: ['[REDACTED]'] },
-                // --- Моторные масла → [REDACTED], наблюдатель [REDACTED] ---
-                { person: '[REDACTED]',     match: ['моторн'],                 context: ['масл','масел'],
-                  observers: ['[REDACTED]'] },
-                // --- Консервационные масла → [REDACTED], наблюдатель [REDACTED] ---
-                { person: '[REDACTED]', match: ['консерваци'],             context: ['масл','масел'],
-                  observers: ['[REDACTED]'] },
-                // --- СОЖ → [REDACTED], наблюдатель [REDACTED] ---
-                { person: '[REDACTED]',match: ['сож','смазочно-охлаждающ','волочильн','дезоксидант','графитов'],
-                  observers: ['[REDACTED]'] },
-                // --- Общие масла → [REDACTED] ---
-                { person: '[REDACTED]', match: ['смазочн','смазк','масл','масел','гсм','горюче-смазочн','антифриз','coilcoating','coil','рулонн'],
-                  exclude: ['трансформаторн','экспандерн','смазочно-охлаждающ','сож','волочильн','графитов','дезоксидант','консерваци','моторн','м16г2цс','м14г2цс','м10г2цс','м20г2сд'] },
-                // --- ЛКМ / порошковые → [REDACTED], наблюдатель [REDACTED] ---
-                { person: '[REDACTED]',   match: ['лкм','лакокрасочн','порошков','резервуар','краск','эмаль'],
-                  observers: ['[REDACTED]'],
-                  exclude: ['дорожн','разметк','разметочн','декоративн','полиэфирн','вагон','судов','судоремонт','антикоррози','аэродромн'] },
-                { person: '[REDACTED]',    match: ['водоподготовк','реагент','коагулянт','флокулянт','оксихлорид','полиоксихлорид','едк'] },
-            ];
+            // Правила приходят из RULES_CONFIG.rules (загружается из rules.json).
 
             function assignDeal(title, customer, customerINN) {
-                // Приоритет 1: заказчик [REDACTED]а (по ИНН или по ключевым словам)
-                if (isLushinCustomer(customerINN, customer)) return { person: '[REDACTED]', observers: [] };
+                if (!RULES_CONFIG) return { person: '', observers: [] };
+
+                // Приоритет 1: приоритетный заказчик (по ИНН или ключевым словам в названии заказчика)
+                if (isLushinCustomer(customerINN, customer)) {
+                    return { person: RULES_CONFIG.lushinPerson || '', observers: [] };
+                }
 
                 if (!title) return { person: '', observers: [] };
                 const lower = title.toLowerCase();
 
-                for (const rule of RESPONSIBLE_RULES) {
-                    const hasMatch = rule.match.some(tag => lower.includes(tag));
+                const rules = RULES_CONFIG.rules || [];
+                for (const rule of rules) {
+                    const matchTags = rule.match || [];
+                    const hasMatch = matchTags.some(tag => lower.includes(tag));
                     if (!hasMatch) continue;
 
                     if (rule.context) {
@@ -734,7 +704,98 @@
                 URL.revokeObjectURL(link.href);
             }
 
-            // --- События ---
+            // --- Загрузка правил ---
+            const RULES_STORAGE_KEY = 'importcrm_rules_v1';
+            const rulesBlock = document.getElementById('rulesBlock');
+            const rulesStatus = document.getElementById('rulesStatus');
+            const loadRulesBtn = document.getElementById('loadRulesBtn');
+            const clearRulesBtn = document.getElementById('clearRulesBtn');
+            const rulesInput = document.getElementById('rulesInput');
+
+            function validateRules(config) {
+                if (!config || typeof config !== 'object') throw new Error('rules.json должен быть JSON-объектом');
+                if (!Array.isArray(config.rules)) throw new Error('Поле "rules" должно быть массивом');
+                for (let i = 0; i < config.rules.length; i++) {
+                    const r = config.rules[i];
+                    if (!r.person || typeof r.person !== 'string') throw new Error(`Правило #${i+1}: отсутствует "person"`);
+                    if (!Array.isArray(r.match) || r.match.length === 0) throw new Error(`Правило #${i+1}: "match" должен быть непустым массивом`);
+                }
+                return true;
+            }
+
+            function updateRulesUI() {
+                if (RULES_CONFIG) {
+                    const ruleCount = (RULES_CONFIG.rules || []).length;
+                    const innCount = (RULES_CONFIG.lushinInns || []).length;
+                    rulesBlock.style.background = '#dcfce7';
+                    rulesBlock.style.color = '#166534';
+                    rulesStatus.textContent = `✅ Правила загружены: ${ruleCount} правил, ${innCount} приоритетных ИНН`;
+                    loadRulesBtn.textContent = 'Заменить rules.json';
+                    clearRulesBtn.style.display = 'inline-block';
+                    dropZone.style.opacity = '1';
+                    dropZone.style.pointerEvents = 'auto';
+                } else {
+                    rulesBlock.style.background = '#fef3c7';
+                    rulesBlock.style.color = '#92400e';
+                    rulesStatus.textContent = '⚠ Правила назначения не загружены';
+                    loadRulesBtn.textContent = 'Загрузить rules.json';
+                    clearRulesBtn.style.display = 'none';
+                    dropZone.style.opacity = '0.4';
+                    dropZone.style.pointerEvents = 'none';
+                }
+                renderAll();
+            }
+
+            function loadRulesFromStorage() {
+                try {
+                    const raw = localStorage.getItem(RULES_STORAGE_KEY);
+                    if (!raw) return null;
+                    const parsed = JSON.parse(raw);
+                    validateRules(parsed);
+                    return parsed;
+                } catch (err) {
+                    console.warn('Не удалось загрузить кэшированные правила:', err);
+                    localStorage.removeItem(RULES_STORAGE_KEY);
+                    return null;
+                }
+            }
+
+            function saveRulesToStorage(config) {
+                localStorage.setItem(RULES_STORAGE_KEY, JSON.stringify(config));
+            }
+
+            loadRulesBtn.addEventListener('click', () => rulesInput.click());
+
+            clearRulesBtn.addEventListener('click', () => {
+                if (confirm('Удалить загруженные правила?')) {
+                    RULES_CONFIG = null;
+                    localStorage.removeItem(RULES_STORAGE_KEY);
+                    updateRulesUI();
+                }
+            });
+
+            rulesInput.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                    try {
+                        const parsed = JSON.parse(ev.target.result);
+                        validateRules(parsed);
+                        RULES_CONFIG = parsed;
+                        saveRulesToStorage(parsed);
+                        showMessage('Правила успешно загружены', 'success');
+                        updateRulesUI();
+                    } catch (err) {
+                        showMessage('Ошибка в rules.json: ' + err.message, 'error');
+                    }
+                };
+                reader.onerror = () => showMessage('Не удалось прочитать файл', 'error');
+                reader.readAsText(file, 'utf-8');
+                rulesInput.value = '';
+            });
+
+            // --- События обработки .xlsx ---
             dropZone.addEventListener('click', () => fileInput.click());
 
             dropZone.addEventListener('dragover', (e) => {
@@ -749,11 +810,13 @@
             dropZone.addEventListener('drop', (e) => {
                 e.preventDefault();
                 dropZone.classList.remove('dragover');
+                if (!RULES_CONFIG) { showMessage('Сначала загрузите rules.json', 'error'); return; }
                 const files = Array.from(e.dataTransfer.files);
                 files.forEach(file => addFileForProcessing(file));
             });
 
             fileInput.addEventListener('change', (e) => {
+                if (!RULES_CONFIG) { showMessage('Сначала загрузите rules.json', 'error'); return; }
                 const files = Array.from(e.target.files);
                 files.forEach(file => addFileForProcessing(file));
                 fileInput.value = ''; // разрешить повторный выбор тех же файлов
@@ -766,7 +829,9 @@
                 showMessage(`CSV сгенерирован, уникальных тендеров: ${stats.unique}`, 'success');
             });
 
-            renderAll();
+            // Инициализация
+            RULES_CONFIG = loadRulesFromStorage();
+            updateRulesUI();
         })();
     </script>
 </body>
